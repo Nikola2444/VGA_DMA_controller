@@ -21,6 +21,8 @@
 #include <linux/device.h>
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
+#include <linux/dma-mapping.h>  // dma access
+
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Driver for VGA ouvput");
@@ -38,8 +40,8 @@ static void __exit vga_dma_exit(void);
 static int vga_dma_remove(struct platform_device *pdev);
 
 static irqreturn_t dma_isr(int irq,void*dev_id);
-int dma_init(int base_address);
-u32 dma_simple_write(u32 *TxBufferPtr, u32 max_pkt_len, u32 base_address); // my function, go and have a look of her body
+int dma_init(void __iomem *base_address);
+u32 dma_simple_write(dma_addr_t TxBufferPtr, u32 max_pkt_len, void __iomem *base_address); // my function, go and have a look of her body
 
 static char chToUpper(char ch);
 static unsigned long strToInt(const char* pStr, int len, int base);
@@ -49,11 +51,12 @@ static struct file_operations vga_dma_fops = {
   .owner = THIS_MODULE,
   .open = vga_dma_open,
   .release = vga_dma_close,
-  .read = vga_dma_>read,
+  .read = vga_dma_read,
   .write = vga_dma_write
 };
 static struct of_device_id vga_dma_of_match[] = {
-  { .compatible = "xlnx,axi-dma-1.00.a", },
+  { .compatible = "xlnx,axi-dma-mm2s-channel", },
+  {.compatible = "xlnx,axi-dma-1.00.a"},
   { /* end of list */ },
 };
 
@@ -72,6 +75,7 @@ struct vga_dma_info {
   unsigned long mem_end;
   void __iomem *base_addr;
   int irq_num;
+  
 };
 
 static struct vga_dma_info *vp = NULL;
@@ -83,7 +87,7 @@ static dev_t first;
 static struct class *cl;
 static int int_cnt;
 
-u32 *tx_phy_buffer;
+dma_addr_t tx_phy_buffer;
 u32 *tx_vir_buffer;
 //***************************************************
 // PROBE AND REMOVE
@@ -99,12 +103,17 @@ static int vga_dma_probe(struct platform_device *pdev) {
     printk(KERN_ALERT "invalid address\n");
     return -ENODEV;
   }
+  else
+    printk(KERN_INFO "platform get resource success\n");
   vp = (struct vga_dma_info *) kmalloc(sizeof(struct vga_dma_info), GFP_KERNEL);
   if (!vp) {
     printk(KERN_ALERT "Cound not allocate vga device\n");
     return -ENOMEM;
   }
-
+  else
+  {
+    printk(KERN_INFO "allocation of space for vp was a success\n");
+  }
   vp->mem_start = r_mem->start;
   vp->mem_end = r_mem->end;
   
@@ -128,12 +137,14 @@ static int vga_dma_probe(struct platform_device *pdev) {
     rc = -EIO;
     goto error2;
   }
+  else
+    printk(KERN_INFO "ioremap was a success\n");
   
   /* 
    * Geting irq num 
    */
   vp->irq_num = platform_get_irq(pdev, 0);
-  //printk("irq number is: %d\n", tp->irq_num);
+  printk("irq number is: %d\n", vp->irq_num);
   
   if (request_irq(vp->irq_num, dma_isr, 0, DEVICE_NAME, NULL)) {
     printk(KERN_ERR "vga_dmai_init: Cannot register IRQ %d\n", vp->irq_num);
@@ -269,45 +280,47 @@ static ssize_t vga_dma_write(struct file *f, const char __user *buf, size_t coun
 
 static irqreturn_t dma_isr(int irq,void*dev_id)
 {
-  u32 IrqStatus;
-  int TimeOut, status;
-  XAxiDma *AxiDmaInst = (XAxiDma *)Callback;
-  u32 MM2S_DMACR_reg;
+  u32 IrqStatus;  
   /* Read pending interrupts */
   IrqStatus = ioread32(vp->base_addr + 4);//read irq status from MM2S_DMASR register
-  iowrite32(vp->base_addr + 4, IrqStatus | 0x00007000);//clear irq status in MM2S_DMASR register
+  iowrite32(IrqStatus | 0x00007000, vp->base_addr + 4);//clear irq status in MM2S_DMASR register
   //(clearing is done by writing 1 on 13. bit in MM2S_DMASR (IOC_Irq)
 
   /*Send a transaction*/
-  dma_simple_write(TxBufferPtr, MAX_PKT_LEN, vp->base_addr); //My function that starts a DMA transaction
-
+  dma_simple_write(tx_phy_buffer, MAX_PKT_LEN, vp->base_addr); //My function that starts a DMA transaction
+  return IRQ_HANDLED;;
 }
 
-int dma_init(int base_address)
+int dma_init(void __iomem *base_address)
 {
   u32 reset = 0x00000004;
-  iowrite32(base_address,  reset); // writing to MM2S_DMACR register. Seting reset bit (3. bit)
-  u32 IOC_IRQ_EN = 1 << 12; // this is IOC_IrqEn bit in MM2S_DMACR register
-  u32 ERR_IRQ_EN = 1 << 14; // this is Err_IrqEn bit in MM2S_DMACR register
+  u32 IOC_IRQ_EN; 
+  u32 ERR_IRQ_EN;
+  u32 MM2S_DMACR_reg;
+  u32 en_interrupt;
+    
+  IOC_IRQ_EN = 1 << 12; // this is IOC_IrqEn bit in MM2S_DMACR register
+  ERR_IRQ_EN = 1 << 14; // this is Err_IrqEn bit in MM2S_DMACR register
 
+  iowrite32(reset, base_address); // writing to MM2S_DMACR register. Seting reset bit (3. bit)
+  
   MM2S_DMACR_reg = ioread32(base_address); // Reading from MM2S_DMACR register inside DMA
-  u32 en_interrupt = MM2S_DMACR_reg | IOC_IRQ_EN | ERR_IRQ_EN;// seting 13. and 15.th bit in MM2S_DMACR
-  iowrite32(base_address,  en_interrupt); // writing to MM2S_DMACR register
-  printf("dma initialization done");
+  en_interrupt = MM2S_DMACR_reg | IOC_IRQ_EN | ERR_IRQ_EN;// seting 13. and 15.th bit in MM2S_DMACR
+  iowrite32(en_interrupt, base_address); // writing to MM2S_DMACR register  
   return 0;
 }
 
-u32 dma_simple_write(u32 *TxBufferPtr, u32 max_pkt_len, u32 base_address) {
+u32 dma_simple_write(dma_addr_t TxBufferPtr, u32 max_pkt_len, void __iomem *base_address) {
   u32 MM2S_DMACR_reg;
 
   MM2S_DMACR_reg = ioread32(base_address); // READ from MM2S_DMACR register
 
-  iowrite32(base_address, 0x1 |  MM2S_DMACR_reg); // set RS bit in MM2S_DMACR register (this bit starts the DMA)
+  iowrite32(0x1 |  MM2S_DMACR_reg, base_address); // set RS bit in MM2S_DMACR register (this bit starts the DMA)
 
-  iowrite32(base_address + 24,  (UINTPTR)TxBufferPtr); // Write into MM2S_SA register the value of TxBufferPtr.
+  iowrite32((u32)TxBufferPtr, base_address + 24); // Write into MM2S_SA register the value of TxBufferPtr.
   // With this, the DMA knows from where to start.
 
-  iowrite32(base_address + 40,  max_pkt_len); // Write into MM2S_LENGTH register. This is the length of a tranaction.
+  iowrite32(max_pkt_len, base_address + 40); // Write into MM2S_LENGTH register. This is the length of a tranaction.
   // In our case this is the size of the image (640*480*4)
   return 0;
 }
@@ -394,18 +407,26 @@ static int __init vga_dma_init(void)
   }
 
   printk(KERN_INFO "Device init.\n");
-
+  
   /*ALLOC COHERENT MEMOERY FOR DMA*/
-  tx_vir_buffer = dma_alloc_coherent(NULL, LENGTH, &tx_phy_buffer, GFP_ATOMIC); //GFP_KERNEL
+  tx_vir_buffer = dma_alloc_coherent(NULL, MAX_PKT_LEN, &tx_phy_buffer, GFP_DMA | GFP_KERNEL); //GFP_KERNEL
+  if(!tx_vir_buffer){
+    printk(KERN_ALERT "Could not allocate dma_alloc_coherent for img");
+    goto fail_3;
+  }
+  else
+    printk("dma_alloc_coherent success img\n");
   for (i = 0; i < MAX_PKT_LEN/4;i++)
     tx_vir_buffer[i] = 0;
+  printk(KERN_INFO "DMA memory INITIALIZED to zeroes.\n");
   return platform_driver_register(&vga_dma_driver);
-
-fail_2:
+ fail_3:
+  cdev_del(&c_dev);
+ fail_2:
   device_destroy(cl, MKDEV(MAJOR(first),0));
-fail_1:
+ fail_1:
   class_destroy(cl);
-fail_0:
+ fail_0:
   unregister_chrdev_region(first, 1);
   return -1;
 
@@ -413,13 +434,15 @@ fail_0:
 
 static void __exit vga_dma_exit(void)  		
 {
-
+  u32 reset;
+  reset = 0x00000004;
+  iowrite32(reset, vp->base_addr); // writing to MM2S_DMACR register. Seting reset bit (3. bit)
   platform_driver_unregister(&vga_dma_driver);
   cdev_del(&c_dev);
   device_destroy(cl, MKDEV(MAJOR(first),0));
   class_destroy(cl);
   unregister_chrdev_region(first, 1);
-  dma_free_coherent(NULL, LENGTH, tx_vir_buffer, tx_phy_buffer);
+  dma_free_coherent(NULL, MAX_PKT_LEN, tx_vir_buffer, tx_phy_buffer);
   printk(KERN_INFO "vga_dma_exit: Exit Device Module \"%s\".\n", DEVICE_NAME);
 }
 
