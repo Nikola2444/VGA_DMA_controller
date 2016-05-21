@@ -55,8 +55,8 @@ static struct file_operations vga_dma_fops = {
   .write = vga_dma_write
 };
 static struct of_device_id vga_dma_of_match[] = {
-  { .compatible = "xlnx,axi-dma-mm2s-channel", },
-  {.compatible = "xlnx,axi-dma-1.00.a"},
+  { .compatible = "xlnx,axi-dma-mm2s-vga-channel", },
+  {.compatible = "xlnx,axi-dma-vga-1.00.a"},
   { /* end of list */ },
 };
 
@@ -170,7 +170,11 @@ error1:
 static int vga_dma_remove(struct platform_device *pdev)
 {
   // Exit Device Module
+  u32 reset;
+  reset = 0x00000004;
+  iowrite32(reset, vp->base_addr); // writing to MM2S_DMACR register. Seting reset bit (3. bit)
   iounmap(vp->base_addr);
+  free_irq(vp->irq_num, NULL);
   //release_mem_region(vp->mem_start, vp->mem_end - vp->mem_start + 1);
   return 0;
 }
@@ -258,7 +262,7 @@ static ssize_t vga_dma_write(struct file *f, const char __user *buf, size_t coun
     rgb = strToInt(lp, strlen(lp), 10);
 
 	
-  if (xpos>=256 || ypos>=144)
+  if (xpos>=640 || ypos>=480)
   {
     printk("position of pixel is out of bounds\n");
     return count;
@@ -268,7 +272,7 @@ static ssize_t vga_dma_write(struct file *f, const char __user *buf, size_t coun
 
   //iowrite32((256*ypos + xpos)*4, vp->base_addr + 8);
   //iowrite32(rgb, vp->base_addr);
-  tx_vir_buffer[256*ypos + xpos] = (u32)rgb;
+  tx_vir_buffer[640*ypos + xpos] = (u32)rgb;
 
 
   //printk("Sucessfull write \n");
@@ -417,7 +421,7 @@ static int __init vga_dma_init(void)
   else
     printk("dma_alloc_coherent success img\n");
   for (i = 0; i < MAX_PKT_LEN/4;i++)
-    tx_vir_buffer[i] = 0;
+    tx_vir_buffer[i] = 0x0000ffff;
   printk(KERN_INFO "DMA memory INITIALIZED to zeroes.\n");
   return platform_driver_register(&vga_dma_driver);
  fail_3:
@@ -434,9 +438,7 @@ static int __init vga_dma_init(void)
 
 static void __exit vga_dma_exit(void)  		
 {
-  u32 reset;
-  reset = 0x00000004;
-  iowrite32(reset, vp->base_addr); // writing to MM2S_DMACR register. Seting reset bit (3. bit)
+  
   platform_driver_unregister(&vga_dma_driver);
   cdev_del(&c_dev);
   device_destroy(cl, MKDEV(MAJOR(first),0));
@@ -452,4 +454,4 @@ module_exit(vga_dma_exit);
 MODULE_AUTHOR ("FTN");
 MODULE_DESCRIPTION("Test Driver for VGA output.");
 MODULE_LICENSE("GPL v2");
-MODULE_ALIAS("custom:vga");
+MODULE_ALIAS("custom:vga_dma");
