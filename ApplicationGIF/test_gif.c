@@ -21,14 +21,14 @@ int main(void)
 	int fd;
 	int *p;
 	while(1){
-	for(i = 0; i < 20; i++){
+	for(i = 0; i < 12; i++){
 		fd = open("/dev/vga_dma", O_RDWR|O_NDELAY);
 		if (fd < 0)
 		{
 			printf("Cannot open /dev/vga for write\n");
 			return -1;
 		}
-		printf("Sending pic %d\n",i);
+		//printf("Sending pic %d\n",i);
 		p=(int*)mmap(0,640*480*4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 		memcpy(p, giphy[i], MAX_PKT_SIZE);
 		munmap(p, MAX_PKT_SIZE);
@@ -38,7 +38,7 @@ int main(void)
 			printf("Cannot close /dev/vga for write\n");
 			return -1;
 		}
-		usleep(100000);
+		usleep(50000);
 	}}
 
 	#else
