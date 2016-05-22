@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
-#include "../PyGif/HEX/giphy0.h"
+#include "../PyGif/giphy.h"
 #define MAX_PKT_SIZE (640*480*4)
 
 //comment to send pixels as commands via regular write function of char driver
@@ -15,25 +15,31 @@
 int main(void)
 {
 	int x,y;
+	int i=0;
 	#ifdef MMAP
 	// If memory map is defined send image directly via mmap
 	int fd;
 	int *p;
-	fd = open("/dev/vga_dma", O_RDWR|O_NDELAY);
-	if (fd < 0)
-	{
-		printf("Cannot open /dev/vga for write\n");
-		return -1;
-	}
-	p=(int*)mmap(0,640*480*4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	memcpy(p, giphy0, MAX_PKT_SIZE);
-	munmap(p, MAX_PKT_SIZE);
-	close(fd);
-	if (fd < 0)
-	{
-		printf("Cannot close /dev/vga for write\n");
-		return -1;
-	}
+	while(1){
+	for(i = 0; i < 20; i++){
+		fd = open("/dev/vga_dma", O_RDWR|O_NDELAY);
+		if (fd < 0)
+		{
+			printf("Cannot open /dev/vga for write\n");
+			return -1;
+		}
+		printf("Sending pic %d\n",i);
+		p=(int*)mmap(0,640*480*4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, giphy[i], MAX_PKT_SIZE);
+		munmap(p, MAX_PKT_SIZE);
+		close(fd);
+		if (fd < 0)
+		{
+			printf("Cannot close /dev/vga for write\n");
+			return -1;
+		}
+		usleep(100000);
+	}}
 
 	#else
 	// Send via regualar driver interface
