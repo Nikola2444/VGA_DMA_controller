@@ -22,6 +22,7 @@
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
 #include <linux/dma-mapping.h>  // dma access
+#include <linux/mm.h>  // dma access
 
 
 MODULE_LICENSE("GPL");
@@ -35,13 +36,14 @@ static int vga_dma_open(struct inode *i, struct file *f);
 static int vga_dma_close(struct inode *i, struct file *f);
 static ssize_t vga_dma_read(struct file *f, char __user *buf, size_t len, loff_t *off);
 static ssize_t vga_dma_write(struct file *f, const char __user *buf, size_t count, loff_t *off);
+static ssize_t vga_dma_mmap(struct file *f, struct vm_area_struct *vma_s);
 static int __init vga_dma_init(void);
 static void __exit vga_dma_exit(void);
 static int vga_dma_remove(struct platform_device *pdev);
 
 static irqreturn_t dma_isr(int irq,void*dev_id);
 int dma_init(void __iomem *base_address);
-u32 dma_simple_write(dma_addr_t TxBufferPtr, u32 max_pkt_len, void __iomem *base_address); // my function, go and have a look of her body
+u32 dma_simple_write(dma_addr_t TxBufferPtr, u32 max_pkt_len, void __iomem *base_address); // helper function, defined later
 
 static char chToUpper(char ch);
 static unsigned long strToInt(const char* pStr, int len, int base);
@@ -52,7 +54,8 @@ static struct file_operations vga_dma_fops = {
   .open = vga_dma_open,
   .release = vga_dma_close,
   .read = vga_dma_read,
-  .write = vga_dma_write
+  .write = vga_dma_write,
+  .mmap = vga_dma_mmap
 };
 static struct of_device_id vga_dma_of_match[] = {
   { .compatible = "xlnx,axi-dma-mm2s-vga-channel", },
@@ -157,7 +160,7 @@ static int vga_dma_probe(struct platform_device *pdev) {
   
   /* INIT DMA */
   dma_init(vp->base_addr);
-  dma_simple_write(tx_phy_buffer, MAX_PKT_LEN, vp->base_addr); // my function, go and have a look of her body
+  dma_simple_write(tx_phy_buffer, MAX_PKT_LEN, vp->base_addr); // helper function, defined later
   
   printk("probing done");
 error2:
@@ -268,10 +271,7 @@ static ssize_t vga_dma_write(struct file *f, const char __user *buf, size_t coun
     return count;
   }
 
-  //printk("X %d Y %d ADDR %d V %d \n",xpos,ypos,(256*ypos + xpos)*2,rgb);
 
-  //iowrite32((256*ypos + xpos)*4, vp->base_addr + 8);
-  //iowrite32(rgb, vp->base_addr);
   tx_vir_buffer[640*ypos + xpos] = (u32)rgb;
 
 
@@ -279,6 +279,28 @@ static ssize_t vga_dma_write(struct file *f, const char __user *buf, size_t coun
   return count;
 
 }
+
+static ssize_t vga_dma_mmap(struct file *f, struct vm_area_struct *vma_s)
+{
+	int ret = 0;
+	long length = vma_s->vm_end - vma_s->vm_start;
+	//printk(KERN_INFO "DMA TX Buffer is being memory mapped\n");
+
+	if(length > MAX_PKT_LEN)
+	{
+		return -EIO;
+		printk(KERN_ERR "Trying to mmap more space than it's allocated\n");
+	}
+
+	ret = dma_mmap_coherent(NULL, vma_s, tx_vir_buffer, tx_phy_buffer, length);
+	if(ret<0)
+	{
+		printk(KERN_ERR "memory map failed\n");
+		return ret;
+	}
+	return 0;
+}
+
 /****************************************************/
 // IMPLEMENTATION OF DMA related functions
 
@@ -421,8 +443,8 @@ static int __init vga_dma_init(void)
   else
     printk("dma_alloc_coherent success img\n");
   for (i = 0; i < MAX_PKT_LEN/4;i++)
-    tx_vir_buffer[i] = 0x0000ffff;
-  printk(KERN_INFO "DMA memory INITIALIZED to zeroes.\n");
+    tx_vir_buffer[i] = 0x00000000;
+  printk(KERN_INFO "DMA memory reset.\n");
   return platform_driver_register(&vga_dma_driver);
  fail_3:
   cdev_del(&c_dev);
