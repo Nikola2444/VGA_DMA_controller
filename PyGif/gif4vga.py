@@ -84,7 +84,7 @@ else:
     print("Creation successfull")
 
 fid = open("giphy.h", 'w')
-fid.write("unsigned short int giphy [][] = \n{\n")
+fid.write("unsigned short int giphy [20][307201] = \n{\n")
 fid.close()
 for i, frame in enumerate(iter_frames(NAME)):
     frame.save('./PNGS/' + NAME + '%d.png'%i, **frame.info)
