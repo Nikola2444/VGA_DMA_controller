@@ -1,5 +1,7 @@
 """Convert image to RGB(565)"""
 from PIL import Image
+import os
+import shutil 
 
 def resize(file_id, resolution):
     "resize image to 256x144"
@@ -23,12 +25,10 @@ def tohex(rgb888):
                           (int(value[2] * 31 / 255))))
     return rgb565
 
-def save_to_file(img_hex, file_id):
+def save_to_file(img_hex):
     "print list to file"
-    fid = open((file_id[:-4]+".h"), 'w')
-    fid.write("unsigned int ")
-    fid.write(file_id[6:-4])
-    fid.write("[] = \n{\n")
+    fid = open("giphy.h", 'a+')
+    fid.write("{ ")
     for i, value in enumerate(img_hex):
         fid.write("0x")
         fid.write(format(value, '04X'))
@@ -36,8 +36,8 @@ def save_to_file(img_hex, file_id):
         if i%10 == 9:
             fid.write("\n")
     fid.write("0x0000")
-    fid.write(" };")
-    print "Image %s sucessfully converted to %s" % (file_id, (file_id[:-4]+".h"))
+    fid.write(" }\n,")
+    fid.close()
 
 
 def iter_frames(name):
@@ -59,26 +59,49 @@ def iter_frames(name):
 
 
 #USER INTERFACE
-NAME = raw_input('Input name of gif you want to convert (eg. giphy): ')
-TMP = raw_input('Input x axis resolution: ')
+NAME = input('Input name of gif you want to convert (eg. giphy): ')
+TMP = input('Input x axis resolution: ')
 try:
     X = int(TMP)
 except ValueError:
-    print "Invalid number"
+    print ("Invalid number")
 
-TMP = raw_input('Input y axis resolution: ')
+TMP = input('Input y axis resolution: ')
 try:
     Y = int(TMP)
 except ValueError:
-    print "Invalid number"
+    print ("Invalid number")
 
 RES = (X, Y)
 
-NUM_FRAME = 0
+path = os.getcwd()
+access_rights = 0o755
+try:
+    os.mkdir(path+'/PNGS',access_rights)
+except OSError:
+    print("Creation failed")
+else:
+    print("Creation successfull")
+
+fid = open("giphy.h", 'w')
+fid.write("unsigned short int giphy [][] = \n{\n")
+fid.close()
 for i, frame in enumerate(iter_frames(NAME)):
     frame.save('./PNGS/' + NAME + '%d.png'%i, **frame.info)
     FID = NAME + str(i) + '.png'
     IMG = resize('./PNGS/' + FID, RES)
     IMG1 = convert(IMG)
     IMG2 = tohex(IMG1)
-    save_to_file(IMG2, './HEX/' + FID)
+    save_to_file(IMG2)
+    print("Frame number %d saved\n"%(i))
+
+fid = open("giphy.h", 'rb+')
+fid.seek(-1, os.SEEK_END)
+fid.truncate()
+fid.close();
+
+fid = open("giphy.h", 'a+')
+fid.write("};")
+fid.close();
+#remobe tmp directory
+shutil.rmtree(path+'/PNGS')
