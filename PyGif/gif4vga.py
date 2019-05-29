@@ -1,5 +1,6 @@
 """Convert image to RGB(565)"""
 from PIL import Image
+from PIL import GifImagePlugin
 import os
 import shutil 
 
@@ -42,7 +43,10 @@ def save_to_file(img_hex):
 
 def iter_frames(name):
     "convert gif to pngs"
+
     im = Image.open(name+".gif")
+    print(im.is_animated)
+    print(im.n_frames)
     try:
         frame = 0
         while 1:
@@ -84,7 +88,7 @@ else:
     print("Creation successfull")
 
 fid = open("giphy.h", 'w')
-fid.write("unsigned short int giphy [20][307201] = \n{\n")
+fid.write("unsigned short int giphy [12][307201] = \n{\n")
 fid.close()
 for i, frame in enumerate(iter_frames(NAME)):
     frame.save('./PNGS/' + NAME + '%d.png'%i, **frame.info)
