@@ -103,6 +103,8 @@ volatile int tx_intr_done;
 static XScuGic INTCInst;
 static XAxiDma AxiDma;		/* Instance of the XAxiDma */
 u32 *TxBufferPtr = (u32 *)TX_BUFFER_BASE;
+
+
 int main()
 {
 	int status;
@@ -195,26 +197,19 @@ u32 Init_Function(u32 DeviceId)
 u32 DMA_init()
 {
 	int Status;
-	XAxiDma_Config *Config;
+	u32 reset = 0x00000004;
 	u32 MM2S_DMACR_reg;
 
-	Config = XAxiDma_LookupConfig(DMA_DEV_ID);
-	if (!Config) {
-		xil_printf("No config found for %d\r\n", DMA_DEV_ID);
+	Xil_Out32(XPAR_AXI_DMA_0_BASEADDR,  reset); // writing to MM2S_DMACR register
 
-		return XST_FAILURE;
-	}
+	XScuGic_SetPriorityTriggerType(&INTCInst, TX_INTR_ID, 0xA8, 0x3);
 
-	/*Initialize DMA engine */
-	Status = XAxiDma_CfgInitialize(&AxiDma, Config);//ovo ovde je potrebno jer XScugic-u treba AxiDma struktura, u driver-u nece biti potrebno
-	XScuGic_SetPriorityTriggerType(&INTCInst, TX_INTR_ID, 0xA8, 0x3);					//   |
-																						//   |
 	/*
-	 * Connect the device driver handler that will be called when an					//   |
-	 * interrupt for the device occurs, the handler defined above performs				//   |
-	 * the specific interrupt processing for the device.								//   |
-	 */																					//   |
-	Status = XScuGic_Connect(&INTCInst, TX_INTR_ID, (Xil_InterruptHandler)TxIntrHandler, &AxiDma);
+	 * Connect the device driver handler that will be called when an
+	 * interrupt for the device occurs, the handler defined above performs
+	 * the specific interrupt processing for the device.
+	 */
+	Status = XScuGic_Connect(&INTCInst, TX_INTR_ID, (Xil_InterruptHandler)TxIntrHandler, NULL);
 	if (Status != XST_SUCCESS) {
 		return Status;
 	}
