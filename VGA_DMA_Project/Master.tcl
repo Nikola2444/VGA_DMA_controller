@@ -12,11 +12,8 @@ cd [getScriptDirectory]
 #set ip_repo_path to script dir
 set ip_repo_path [getScriptDirectory]
 
-# PACKAGE SVM IP
+# PACKAGE VGA IP
 source $ip_repo_path\/VGA_DMA_IP\/src\/script\/VGA.tcl
 
-# PACKAGE DESKEW IP
-source $ip_repo_path\/myLed_IP\/src\/script\/myLed.tcl
-
-# PACKAGE DESKEW IP
+# CREATE IP BLOCK DIAGRAM
 source $ip_repo_path\/Top\/Top.tcl

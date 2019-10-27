@@ -40,16 +40,33 @@ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_timer:2.0 axi_timer_0
 endgroup
 set_property -dict [list CONFIG.mode_64bit {1}] [get_bd_cells axi_timer_0]
 
-#add LED_IP, output port and connect them
-startgroup
-create_bd_cell -type ip -vlnv FTN:user:myLed:1.0 myLed_0
-endgroup
-
-create_bd_port -dir O -from 3 -to 0 -type data led
+#add LED_GPIO
 
 startgroup
-connect_bd_net [get_bd_ports led] [get_bd_pins myLed_0/led]
+create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 axi_gpio_0
 endgroup
+set_property -dict [list CONFIG.C_GPIO_WIDTH {4} CONFIG.C_ALL_OUTPUTS {1}] [get_bd_cells axi_gpio_0]
+create_bd_port -dir O -from 3 -to 0 -type data led_o
+connect_bd_net [get_bd_ports led_o] [get_bd_pins axi_gpio_0/gpio_io_o]
+
+#add BUTTON_GPIO
+startgroup
+create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 axi_gpio_1
+endgroup
+set_property -dict [list CONFIG.C_GPIO_WIDTH {4} CONFIG.C_ALL_INPUTS {1}] [get_bd_cells axi_gpio_1]
+create_bd_port -dir I -from 3 -to 0 button_i
+connect_bd_net [get_bd_ports button_i] [get_bd_pins axi_gpio_1/gpio_io_i]
+
+#add SWITCH_GPIO
+startgroup
+create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 axi_gpio_2
+endgroup
+set_property -dict [list CONFIG.C_GPIO_WIDTH {4} CONFIG.C_ALL_INPUTS {1}] [get_bd_cells axi_gpio_2]
+create_bd_port -dir I -from 3 -to 0 switch_i
+connect_bd_net [get_bd_ports switch_i] [get_bd_pins axi_gpio_2/gpio_io_i]
+
+
+
 
 
 #add VGA controller 
@@ -85,13 +102,19 @@ connect_bd_net [get_bd_pins axi_timer_0/interrupt] [get_bd_pins xlconcat_0/In0]
 connect_bd_net [get_bd_pins axi_dma_0/mm2s_introut] [get_bd_pins xlconcat_0/In1]
 connect_bd_net [get_bd_pins xlconcat_0/dout] [get_bd_pins processing_system7_0/IRQ_F2P]
 
-#dun block automation
+#run block automation
 startgroup
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/processing_system7_0/M_AXI_GP0} Slave {/axi_gpio_0/S_AXI} intc_ip {New AXI Interconnect} master_apm {0}}  [get_bd_intf_pins axi_gpio_0/S_AXI]
+
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/processing_system7_0/M_AXI_GP0} Slave {/axi_gpio_1/S_AXI} intc_ip {New AXI Interconnect} master_apm {0}}  [get_bd_intf_pins axi_gpio_1/S_AXI]
+
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/processing_system7_0/M_AXI_GP0} Slave {/axi_gpio_2/S_AXI} intc_ip {New AXI Interconnect} master_apm {0}}  [get_bd_intf_pins axi_gpio_2/S_AXI]
+
+
 apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/axi_dma_0/M_AXI_MM2S} Slave {/processing_system7_0/S_AXI_HP0} intc_ip {Auto} master_apm {0}}  [get_bd_intf_pins processing_system7_0/S_AXI_HP0]
 
 apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/processing_system7_0/M_AXI_GP0} Slave {/axi_timer_0/S_AXI} intc_ip {New AXI Interconnect} master_apm {0}}  [get_bd_intf_pins axi_timer_0/S_AXI]
 
-apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/processing_system7_0/M_AXI_GP0} Slave {/myLed_0/s_axi} intc_ip {New AXI Interconnect} master_apm {0}}  [get_bd_intf_pins myLed_0/s_axi]
 
 apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config {Clk "/processing_system7_0/FCLK_CLK0 (100 MHz)" }  [get_bd_pins VGA_DMA_IP_0/s00_axis_aclk]
 
@@ -104,6 +127,8 @@ add_files -fileset constrs_1 -norecurse Top.xdc
 
 #validating design
 validate_bd_design
+#regenerate design
+regenerate_bd_layout
 #Creating hdl wrapper
 make_wrapper -files [get_files $resultDir/VGA_DMA_controller.srcs/sources_1/bd/VGA_DMA_controller/VGA_DMA_controller.bd] -top
 add_files -norecurse $resultDir/VGA_DMA_controller.srcs/sources_1/bd/VGA_DMA_controller/hdl/VGA_DMA_controller_wrapper.v
