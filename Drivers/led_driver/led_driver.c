@@ -32,7 +32,7 @@
 
 #include <linux/uaccess.h>
 
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("Led driver");
 
 #define DRIVER_NAME "led"
@@ -48,7 +48,9 @@ static int __init led_init(void);
 static void __exit led_exit(void);
 
 /*Helper Functions prototypes */
-static int intToStr(int val, char* pBuf, int bufLen, int base);
+static int int_to_str(int val, char* pBuf, int buf_len, int base);
+static unsigned long str_to_int(const char* pStr, int len, int base);
+static char ch_to_upper(char ch);
 
 /******************************************************/
 
@@ -93,7 +95,7 @@ static int led_probe(struct platform_device *pdev)
 
   lp->mem_start = r_mem->start;
   lp->mem_end = r_mem->end;
-
+  printk(KERN_INFO "base address:%x \t high_address:%x", r_mem->start, r_mem->end);
   //request memory region for led driver, based on resources read from device tree
   if (!request_mem_region(lp->mem_start,lp->mem_end - lp->mem_start + 1,	DRIVER_NAME))
   {
@@ -146,21 +148,23 @@ MODULE_DEVICE_TABLE(of, led_of_match);
 
 static int led_open(struct inode *i, struct file *f)
 {
-  printk(KERN_INFO "Led open.\n");
+ 
   return 0;
 }
 
 static int led_close(struct inode *i, struct file *f)
 {
-  printk(KERN_INFO "Led close.\n");
+  
   return 0;
 }
 
 static ssize_t led_read(struct file *f, char __user *buf, size_t
                         len, loff_t *off)
 {
+  char *led_string = "0b0000";
   u32 led_value;
   char buffer[20];
+  int i = 0;
   int length;
   int base = 2;
   if(end_read)
@@ -168,44 +172,49 @@ static ssize_t led_read(struct file *f, char __user *buf, size_t
     end_read = 0;
     return 0;
   }
+  for (i = 2; i < strlen(led_string); i++)
+    led_string[i] = '0';
   led_value = ioread32(lp->base_addr);
-  length=intToStr(led_value, buffer, 4, base);
-  if (copy_to_user(buf, buffer, length))
+  length = int_to_str(led_value, buffer, 4, base);
+  for(i = 0; i <= length - 1; i++)
+  {
+    led_string[strlen(led_string) - 1 - i] = buffer[length - 1 - i];
+  }
+  if (copy_to_user(buf, led_string, strlen(led_string)))
     return -EFAULT;
   end_read=1;
-  return length;
+  
+  return strlen(led_string);
+
 }
 
 static ssize_t led_write(struct file *f, const char __user *buf,
                          size_t count, loff_t *off)
 {
   char buffer[16];
-  int base;
   u32 led_value;
- 
+  int str_length;
+  
   if (copy_from_user(buffer, buf, count))
     return -EFAULT;
-  if(buf[1] == 'b')
-    base = 2;
-  else if(buf[1] == 'x')
-    base = 16;
+  if (buffer[count - 1]=='\n')
+    str_length = count - 1;
   else
-    base = 10;
-  buffer[count] = '\0';
-  led_value = simple_strtoul(buffer, NULL, base);
-  if (!led_value)
-  {
-    printk(KERN_INFO "WRONG INPUT FORMAT, VALID FORMATS ARE: 0xf, 0b1111 or 15 ");
-    return count;
-  }
-    
+    str_length = count;  
+  if(buffer[1] == 'b')
+    led_value = str_to_int(buffer+2, str_length - 2, 2);  
+  else if(buffer[1] == 'x')
+    led_value = str_to_int(buffer+2,str_length - 2, 16);  
+  else
+    led_value = str_to_int(buffer, str_length, 10);  
+      
   iowrite32(led_value, lp->base_addr);
   return count;
 }
 
-static int intToStr(int val, char* pBuf, int bufLen, int base)
+static int int_to_str(int val, char* pBuf, int buf_len, int base)
 {
-  static const char* pConv = "0123456789ABCDEF";
+  static const char* p_conv = "0123456789ABCDEF";
   int num = val;
   int len = 0;
   int pos = 0;
@@ -224,20 +233,57 @@ static int intToStr(int val, char* pBuf, int bufLen, int base)
   pos = len-1;
   num = val;
 
-  if(pos > bufLen-1)
+  if(pos > buf_len-1)
   {
-    pos = bufLen-1;
+    pos = buf_len-1;
   }
 
   for(; pos >= 0; pos--)
   {
-    pBuf[pos] = pConv[num % base];
+    pBuf[pos] = p_conv[num % base];
     num /= base;
   }
-
+  
   return len;
 }
 
+static unsigned long str_to_int(const char* pStr, int len, int base)
+{
+  //                      0,1,2,3,4,5,6,7,8,9,:,;,<,=,>,?,@,A ,B ,C ,D ,E ,F
+  static const int v[] = {0,1,2,3,4,5,6,7,8,9,0,0,0,0,0,0,0,10,11,12,13,14,15};
+  int i   = 0;
+  unsigned long val = 0;
+  int dec = 1;
+  int idx = 0;
+
+  for(i = len; i > 0; i--)
+  {
+    idx = ch_to_upper(pStr[i-1]) - '0';
+
+    if(idx > sizeof(v)/sizeof(int))
+    {
+      printk("str_to_int: illegal character %c\n", pStr[i-1]);
+      continue;
+    }
+
+    val += (v[idx]) * dec;
+    dec *= base;
+  }
+
+  return val;
+}
+
+static char ch_to_upper(char ch)
+{
+  if((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'))
+  {
+    return ch;
+  }
+  else
+  {
+    return ch - ('a'-'A');
+  }
+}
 static struct file_operations led_fops =
 {
   .owner = THIS_MODULE,
@@ -271,7 +317,7 @@ static int __init led_init(void)
   }
   printk(KERN_INFO "Succ CHRDEV!.\n");
 
-  if ((cl = class_create(THIS_MODULE, "chardrv")) == NULL)
+  if ((cl = class_create(THIS_MODULE, "led_chardrv")) == NULL)
   {
     printk(KERN_ALERT "<1>Failed class create!.\n");
     goto fail_0;

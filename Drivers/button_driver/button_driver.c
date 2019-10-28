@@ -33,9 +33,9 @@
 #include <linux/uaccess.h>
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("button driver");
+MODULE_DESCRIPTION("Button driver");
 
-#define DRIVER_NAME "button_driver"
+#define DRIVER_NAME "button"
 
 /*FOPS Functions prototypes*/
 static int button_probe(struct platform_device *pdev);
@@ -48,7 +48,7 @@ static int __init button_init(void);
 static void __exit button_exit(void);
 
 /*Helper Functions prototypes */
-static int intToStr(int val, char* pBuf, int bufLen, int base);
+static int int_to_str(int val, char* pBuf, int buf_len, int base);
 
 /******************************************************/
 
@@ -69,9 +69,9 @@ struct button_info {
 
 static struct button_info *lp = NULL;
 
-/* Probe function for button 
+/* Probe function for button
  * -------------------------------------------------------------------
- * Probe function is called when button driver is recognized from device tree
+ * Probe function called when button driver is recognized from device tree
  * after registering platform driver, using compatible string to 
  * search for compatible devices in device tree
  * -------------------------------------------------------------------
@@ -93,7 +93,7 @@ static int button_probe(struct platform_device *pdev)
 
   lp->mem_start = r_mem->start;
   lp->mem_end = r_mem->end;
-
+  //printk(KERN_INFO "base address:%x \t high_address:%x\n", r_mem->start, r_mem->end);
   //request memory region for button driver, based on resources read from device tree
   if (!request_mem_region(lp->mem_start,lp->mem_end - lp->mem_start + 1,	DRIVER_NAME))
   {
@@ -121,14 +121,15 @@ error1:
 
 /* Remove function for button
  * -------------------------------------------------------
- *  When button module is removed,
+ *  When button module is removed, turn off all the buttons first,
  *  release virtual address and the memory region requested.
  *  Also remove button_info struct allocated in button_probe.
  * --------------------------------------------------------
  */
 static int button_remove(struct platform_device *pdev)
 {
-  printk(KERN_ALERT "button platform driver removed\n");  
+  printk(KERN_ALERT "button platform driver removed\n");
+  //iowrite32(0, lp->base_addr);
   iounmap(lp->base_addr);
   release_mem_region(lp->mem_start, lp->mem_end - lp->mem_start + 1);
   //release also memory allocated for button_info struct
@@ -145,21 +146,23 @@ MODULE_DEVICE_TABLE(of, button_of_match);
 
 static int button_open(struct inode *i, struct file *f)
 {
-  printk(KERN_INFO "button open.\n");
+  
   return 0;
 }
 
 static int button_close(struct inode *i, struct file *f)
 {
-  printk(KERN_INFO "button close.\n");
+  
   return 0;
 }
 
 static ssize_t button_read(struct file *f, char __user *buf, size_t
                         len, loff_t *off)
 {
+  char *button_string = "0b0000";
   u32 button_value;
   char buffer[20];
+  int i = 0;
   int length;
   int base = 2;
   if(end_read)
@@ -167,27 +170,32 @@ static ssize_t button_read(struct file *f, char __user *buf, size_t
     end_read = 0;
     return 0;
   }
+  for (i = 2; i < strlen(button_string); i++)
+    button_string[i] = '0';
   button_value = ioread32(lp->base_addr);
-  length=intToStr(button_value, buffer, 4, base);
-  if (copy_to_user(buf, buffer, length))
+  length = int_to_str(button_value, buffer, 4, base);
+  for(i = 0; i <= length - 1; i++)
+  {
+    button_string[strlen(button_string) - 1 - i] = buffer[length - 1 - i];
+  }
+  if (copy_to_user(buf, button_string, strlen(button_string)))
     return -EFAULT;
   end_read=1;
-  return length;
+  
+  return strlen(button_string);
+
 }
 
 static ssize_t button_write(struct file *f, const char __user *buf,
                          size_t count, loff_t *off)
 {
-    printk(KERN_INFO "Buttons do not support write operations");
-    return count;
-  
-    
+  printk(KERN_INFO  "buttons do not support write operation\n");
   return count;
 }
 
-static int intToStr(int val, char* pBuf, int bufLen, int base)
+static int int_to_str(int val, char* pBuf, int buf_len, int base)
 {
-  static const char* pConv = "0123456789ABCDEF";
+  static const char* p_conv = "0123456789ABCDEF";
   int num = val;
   int len = 0;
   int pos = 0;
@@ -206,19 +214,20 @@ static int intToStr(int val, char* pBuf, int bufLen, int base)
   pos = len-1;
   num = val;
 
-  if(pos > bufLen-1)
+  if(pos > buf_len-1)
   {
-    pos = bufLen-1;
+    pos = buf_len-1;
   }
 
   for(; pos >= 0; pos--)
   {
-    pBuf[pos] = pConv[num % base];
+    pBuf[pos] = p_conv[num % base];
     num /= base;
   }
-
+  
   return len;
 }
+
 
 static struct file_operations button_fops =
 {
@@ -244,7 +253,7 @@ static int __init button_init(void)
   /* unsigned long addr; */
   /* int ret; */
 
-  printk(KERN_INFO "button init.\n");
+  printk(KERN_INFO "Button init.\n");
 
   if (alloc_chrdev_region(&first, 0, 1, "Button_region") < 0)
   {
@@ -253,7 +262,7 @@ static int __init button_init(void)
   }
   printk(KERN_INFO "Succ CHRDEV!.\n");
 
-  if ((cl = class_create(THIS_MODULE, "chardrv")) == NULL)
+  if ((cl = class_create(THIS_MODULE, "button_chardrv")) == NULL)
   {
     printk(KERN_ALERT "<1>Failed class create!.\n");
     goto fail_0;
@@ -294,7 +303,7 @@ static void __exit button_exit(void)
   device_destroy(cl, MKDEV(MAJOR(first),0));
   class_destroy(cl);
   unregister_chrdev_region(first, 1);
-  printk(KERN_ALERT "button exit.\n");
+  printk(KERN_ALERT "Button exit.\n");
 }
 
 module_init(button_init);
